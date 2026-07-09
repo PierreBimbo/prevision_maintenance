@@ -26,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DATA_FILE = "Base_donnees_maintenance_FUSIONNEE2.xlsx"
+DATA_FILE = r"X:\Maintenance\Donnees_Synthese\Base_donnees_maintenance.xlsx"
 
 TYPE_COLORS = {
     "MECHANICAL": "#e67e22",
@@ -139,15 +139,36 @@ def _predict_type_keywords(desc: str) -> str:
     return "OTHER"
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)  # rafraîchit toutes les heures sur le cloud
 def load_data(path: str) -> pd.DataFrame:
-    # Priorité : secrets Streamlit Cloud (données privées) → fichier local (dev)
-    import io, base64
-    if "data" in st.secrets and "excel_b64" in st.secrets["data"]:
-        raw = base64.b64decode(st.secrets["data"]["excel_b64"])
-        df = pd.read_excel(io.BytesIO(raw), sheet_name="Base")
-    else:
+    import io, base64, requests
+    df = None
+
+    # 1️⃣  GitHub Gist (Streamlit Cloud — données privées, sync auto)
+    gh = st.secrets.get("github", {})
+    if gh.get("token") and gh.get("gist_id"):
+        try:
+            r = requests.get(
+                f"https://api.github.com/gists/{gh['gist_id']}",
+                headers={"Authorization": f"token {gh['token']}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            b64 = r.json()["files"]["data.txt"]["content"]
+            df = pd.read_excel(io.BytesIO(base64.b64decode(b64)), sheet_name="Base")
+        except Exception:
+            df = None
+
+    # 2️⃣  Secret base64 de secours (ancien mécanisme)
+    if df is None:
+        sec = st.secrets.get("data", {})
+        if sec.get("excel_b64"):
+            df = pd.read_excel(io.BytesIO(base64.b64decode(sec["excel_b64"])), sheet_name="Base")
+
+    # 3️⃣  Fichier local / réseau (développement)
+    if df is None:
         df = pd.read_excel(path, sheet_name="Base")
+
     df.columns = df.columns.str.strip()
 
     # Date
