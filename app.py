@@ -27,7 +27,6 @@ st.set_page_config(
 )
 
 DATA_FILE = "Base_donnees_maintenance_FUSIONNEE2.xlsx"
-TRAINING_FILE = "01.01.2011_10.06.2026_ZDTR_structured.csv"  # ancienne base labellisée pour le classifieur
 
 TYPE_COLORS = {
     "MECHANICAL": "#e67e22",
@@ -110,21 +109,34 @@ def _localisation_to_machine(loc: str) -> str:
     return v[:45].strip()
 
 
-@st.cache_data
-def load_training_data(path: str) -> pd.DataFrame:
-    """Charge l'ancienne base CSV structurée (labellisée) pour l'entraînement du classifieur."""
-    df = pd.read_csv(path, sep=";", encoding="latin-1")
-    df.columns = df.columns.str.strip()
-    splits = df["produit"].fillna("").apply(_split_produit_machine)
-    df["machine"] = splits.apply(lambda x: x[1])
-    df["machine"] = df["machine"].replace("ELECTRIQUE", "ALIM ELECTRIQUE")
-    df["desc"] = df["desc"].fillna("").str.upper().str.strip()
-    df["date_dt"] = pd.to_datetime(df["date"], format="%d.%m.%Y", errors="coerce")
-    df = df.dropna(subset=["date_dt", "type"])
-    today = pd.Timestamp.today().normalize()
-    jours = (today - df["date_dt"]).dt.days.clip(lower=0)
-    df["poids"] = 2 ** (-jours / (3 * 365))
-    return df[["desc", "type", "machine", "poids"]]
+# Mots-clés pour la classification automatique des types de panne
+_ELECTRICAL_KW = [
+    "ELECTR", "TRANSFO", "CAPTEUR", "VARIATEUR", "MOTEUR", "DISJONCTEUR",
+    "COURT-CIRCUIT", "CABLE", "ALIMENTATION", "ONDULEUR", "CONTACTEUR",
+    "INTERRUPTEUR", "BORNE", "SONDE", "ENCODEUR", "ENCODER", "SERVO",
+    "24V", "230V", "400V", "THERMIQUE", "AUTOMATE", "DETECTEUR",
+    "PRESSOSTAT", "THERMOSTAT", "RELAIS", "FUSIBLE", "TENSION",
+    "COURANT", "PLC", "INVERTER", "FREQUENCY",
+]
+_MECHANICAL_KW = [
+    "MECANI", "COURROIE", "ROULEMENT", "USURE", "PISTON",
+    "VERIN", "RESSORT", "GRAISSE", "LUBRI", "ENGRENAGE", "CHAINE",
+    "PIGNON", "ARBRE", "PALIER", "JOINT", "CASSE", "BRISE",
+    "DECHIRE", "DEFORMATION", "SOUDURE", "BLOCAGE", "COINC",
+    "VIBRATION", "ROUILLE", "CORROS", "RUPTURE", "FISSURE",
+]
+
+
+def _predict_type_keywords(desc: str) -> str:
+    """Classification par mots-clés — autonome, sans fichier externe."""
+    d = _normalise(str(desc))
+    for kw in _ELECTRICAL_KW:
+        if kw in d:
+            return "ELECTRICAL"
+    for kw in _MECHANICAL_KW:
+        if kw in d:
+            return "MECHANICAL"
+    return "OTHER"
 
 
 @st.cache_data
@@ -152,8 +164,8 @@ def load_data(path: str) -> pd.DataFrame:
     # Durée : non disponible dans la base fusionnée
     df["duree_min"] = 0
 
-    # Type : placeholder — sera prédit par le classifieur après chargement
-    df["type"] = "UNKNOWN"
+    # Type : classification par mots-clés (autonome, sans fichier externe)
+    df["type"] = df["desc"].apply(_predict_type_keywords)
 
     # Colonnes supplémentaires — accès défensif (noms pouvant varier selon la version du fichier)
     def _col(df, *names):
@@ -239,13 +251,6 @@ def build_classifier(df_train: pd.DataFrame):
 
 # ─── Chargement ────────────────────────────────────────────────────────────────
 df = load_data(DATA_FILE)
-df_train = load_training_data(TRAINING_FILE)
-
-# Prédire les types (MECHANICAL / ELECTRICAL / OTHER) depuis la base labellisée
-with st.spinner("Prédiction des types de panne en cours…"):
-    _clf_init, _, _, _, _ = build_classifier(df_train)
-    _text_for_type = df["desc"] + " " + df["machine"].str.replace(" ", "_")
-    df["type"] = _clf_init.predict(_text_for_type.tolist())
 
 # ─── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.title("🔧 Paramètres")
@@ -756,7 +761,7 @@ elif page == "🤖 Classification automatique":
     )
 
     with st.spinner("Entraînement du modèle en cours…"):
-        pipeline, report, cm, acc, labels = build_classifier(df_train)
+        pipeline, report, cm, acc, labels = build_classifier(df_base)
 
     st.success(f"✅ Modèle entraîné — Précision globale : **{acc:.1%}**")
 
