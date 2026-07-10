@@ -909,20 +909,20 @@ elif page == "📈 Prévision des pannes":
                 df_base["machine"].isin(selected_machines if selected_machines else machines_dispo)
             ]
             me_counts = (
-                _df_prev.groupby(["machine", "equipement"]).size().reset_index(name="n")
+                _df_prev.groupby(["produit", "equipement"]).size().reset_index(name="n")
             )
             # Compter les mois distincts pour garantir 12 mois d'historique
             me_months = (
-                _df_prev.groupby(["machine", "equipement"])["annee_mois"]
+                _df_prev.groupby(["produit", "equipement"])["annee_mois"]
                 .nunique()
                 .reset_index(name="n_mois")
             )
-            me_counts = me_counts.merge(me_months, on=["machine", "equipement"])
+            me_counts = me_counts.merge(me_months, on=["produit", "equipement"])
             me_counts = me_counts[me_counts["n_mois"] >= 12].sort_values("n", ascending=False)
-            me_counts["label"] = me_counts["machine"] + " (" + me_counts["equipement"] + ")"
+            me_counts["label"] = me_counts["produit"] + " (" + me_counts["equipement"] + ")"
             label_to_pair = dict(zip(
                 me_counts["label"],
-                zip(me_counts["machine"], me_counts["equipement"])
+                zip(me_counts["produit"], me_counts["equipement"])
             ))
             labels_dispo = me_counts["label"].tolist()
             if not labels_dispo:
@@ -944,14 +944,14 @@ elif page == "📈 Prévision des pannes":
         # ── Séries sur l'historique complet filtré par EM/BUN + machine (sans date)
         all_months = sorted(_df_prev["annee_mois"].unique())
 
-        sel_machine_names = list({label_to_pair[l][0] for l in sel_machines})
+        sel_produit_names = list({label_to_pair[l][0] for l in sel_machines})
         sel_equips = list({label_to_pair[l][1] for l in sel_machines})
         monthly_machine = (
             _df_prev[
-                _df_prev["machine"].isin(sel_machine_names) &
+                _df_prev["produit"].isin(sel_produit_names) &
                 _df_prev["equipement"].isin(sel_equips)
             ]
-            .groupby(["annee_mois", "machine", "equipement"])
+            .groupby(["annee_mois", "produit", "equipement"])
             .size()
             .reset_index(name="count")
         )
@@ -1003,13 +1003,13 @@ elif page == "📈 Prévision des pannes":
             return np.clip(np.round(future), 0, None)
 
         for i, label in enumerate(sel_machines):
-            machine, equip = label_to_pair[label]
+            produit_val, equip = label_to_pair[label]
             # Remplir les mois manquants avec 0
             sub = (
                 pd.DataFrame({"annee_mois": all_months})
                 .merge(
                     monthly_machine[
-                        (monthly_machine["machine"] == machine) &
+                        (monthly_machine["produit"] == produit_val) &
                         (monthly_machine["equipement"] == equip)
                     ][["annee_mois", "count"]],
                     on="annee_mois", how="left"
@@ -1100,7 +1100,7 @@ elif page == "📈 Prévision des pannes":
             (sub["count"].max() for sub in [
                 pd.DataFrame({"annee_mois": all_months}).merge(
                     monthly_machine[
-                        (monthly_machine["machine"] == label_to_pair[lbl][0]) &
+                        (monthly_machine["produit"] == label_to_pair[lbl][0]) &
                         (monthly_machine["equipement"] == label_to_pair[lbl][1])
                     ][["annee_mois","count"]],
                     on="annee_mois", how="left"
@@ -1184,9 +1184,9 @@ elif page == "📈 Prévision des pannes":
         mtbf_rows = []
 
         for lbl in sel_machines:
-            machine, equip = label_to_pair[lbl]
+            produit_val, equip = label_to_pair[lbl]
             sub_hist = _df_prev[
-                (_df_prev["machine"] == machine) &
+                (_df_prev["produit"] == produit_val) &
                 (_df_prev["equipement"] == equip) &
                 (_df_prev["date_dt"] <= _fin_ts)
             ].sort_values("date_dt")
