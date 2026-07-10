@@ -788,7 +788,7 @@ elif page == "🤖 Classification automatique":
     )
 
     with st.spinner("Entraînement du modèle en cours…"):
-        pipeline, report, cm, acc, labels = build_classifier(df_base)
+        pipeline, report, cm, acc, labels = build_classifier(df[df["equipement"].isin(selected_equip)])
 
     st.success(f"✅ Modèle entraîné — Précision globale : **{acc:.1%}**")
 
