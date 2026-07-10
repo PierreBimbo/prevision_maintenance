@@ -944,13 +944,13 @@ elif page == "📈 Prévision des pannes":
         # ── Séries sur l'historique complet filtré par EM/BUN + machine (sans date)
         all_months = sorted(_df_prev["annee_mois"].unique())
 
-        sel_produit_names = list({label_to_pair[l][0] for l in sel_machines})
-        sel_equips = list({label_to_pair[l][1] for l in sel_machines})
+        # Filtre par paire exacte (produit, equip) — évite le produit cartésien
+        _pair_mask = pd.Series(False, index=_df_prev.index)
+        for _lbl in sel_machines:
+            _p, _e = label_to_pair[_lbl]
+            _pair_mask |= (_df_prev["produit"] == _p) & (_df_prev["equipement"] == _e)
         monthly_machine = (
-            _df_prev[
-                _df_prev["produit"].isin(sel_produit_names) &
-                _df_prev["equipement"].isin(sel_equips)
-            ]
+            _df_prev[_pair_mask]
             .groupby(["annee_mois", "produit", "equipement"])
             .size()
             .reset_index(name="count")
@@ -1132,10 +1132,10 @@ elif page == "📈 Prévision des pannes":
         if forecast_rows:
             st.subheader("Tableau des prévisions",
                 help="Nombre de pannes prévues par mois et par machine sur l'horizon sélectionné. Calcul basé sur une régression linéaire pondérée (mois récents = plus de poids).")
-            fc_df = (
-                pd.DataFrame(forecast_rows)
-                .pivot(index="Mois", columns="Machine", values="Pannes prévues")
-            )
+            _fc_raw = pd.DataFrame(forecast_rows)
+            # Dédoublonnage au cas où un label apparaît plusieurs fois
+            _fc_raw = _fc_raw.groupby(["Mois", "Machine"], as_index=False)["Pannes prévues"].sum()
+            fc_df = _fc_raw.pivot(index="Mois", columns="Machine", values="Pannes prévues")
             fc_df["TOTAL"] = fc_df.sum(axis=1)
             st.dataframe(fc_df.style.format("{:.0f}"), width='stretch')
 
