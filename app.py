@@ -1159,6 +1159,20 @@ elif page == "📈 Prévision des pannes":
             fig_risk.update_layout(showlegend=False, xaxis_tickangle=-30)
             st.plotly_chart(fig_risk, width='stretch')
 
+            # ── Top 5 des prévisions ──────────────────────────────────────────
+            st.subheader("🏆 Top 5 — Machines les plus critiques sur l'horizon",
+                help="Classement des 5 machines avec le plus grand nombre de pannes prévues cumulées sur l'horizon sélectionné.")
+            top5 = risk.head(5).reset_index()
+            top5.index = top5.index + 1  # numérotation 1 → 5
+            top5.columns = ["Machine", "Pannes prévues (total)"]
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+            cols_top5 = st.columns(min(len(top5), 5))
+            for col_t, (_, row), medal in zip(cols_top5, top5.iterrows(), medals):
+                col_t.metric(
+                    label=f"{medal} {row['Machine']}",
+                    value=f"{int(row['Pannes prévues (total)'])} pannes",
+                )
+
         # ── Section MTBF ─────────────────────────────────────────────────────
         st.markdown("---")
         st.subheader("🔧 Risque MTBF — Probabilité de panne imminente",
