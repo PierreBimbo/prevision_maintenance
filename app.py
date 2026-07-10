@@ -1139,25 +1139,84 @@ elif page == "📈 Prévision des pannes":
             fc_df["TOTAL"] = fc_df.sum(axis=1)
             st.dataframe(fc_df.style.format("{:.0f}"), width='stretch')
 
-            # Machine la plus à risque sur l'horizon
-            risk = (
+            # ── Matrice de risque : Fréquence prévue × Urgence MTBF ──────────
+            st.subheader("🎯 Matrice de risque — Fréquence vs Urgence",
+                help="Croise la fréquence de pannes prévues (axe X) et la probabilité de panne imminente basée sur le MTBF (axe Y). "
+                     "Taille de la bulle = cumul total sur l'horizon. "
+                     "Quadrant haut-droite = priorité maximale.")
+
+            _risk_freq = (
                 pd.DataFrame(forecast_rows)
                 .groupby("Machine")["Pannes prévues"]
-                .sum()
-                .sort_values(ascending=False)
+                .agg(total="sum", freq="mean")
+                .reset_index()
             )
-            st.subheader("🚨 Machines les plus à risque sur l'horizon",
-                help="Cumul des pannes prévues sur tout l'horizon par machine. Permet de prioriser les actions de maintenance préventive.")
-            fig_risk = px.bar(
-                risk.reset_index(),
-                x="Machine",
-                y="Pannes prévues",
-                color="Pannes prévues",
-                color_continuous_scale="Reds",
-                text_auto=True,
+
+            # Calcul MTBF inline pour les machines sélectionnées
+            _mtbf_quick = {}
+            _today_q = pd.Timestamp.today().normalize()
+            for _lbl in sel_machines:
+                _pv, _eq = label_to_pair[_lbl]
+                _sh = _df_prev[
+                    (_df_prev["produit"] == _pv) & (_df_prev["equipement"] == _eq)
+                ].sort_values("date_dt")
+                if len(_sh) < 2:
+                    _mtbf_quick[_lbl] = 50.0  # valeur neutre si pas assez d'historique
+                    continue
+                _dates = _sh["date_dt"].drop_duplicates().sort_values()
+                _iv = _dates.diff().dropna().dt.days
+                if len(_iv) == 0 or _iv.mean() == 0:
+                    _mtbf_quick[_lbl] = 50.0
+                    continue
+                _mtbf_d = float(_iv.mean())
+                _days_s = int((_today_q - _dates.iloc[-1]).days)
+                _mtbf_quick[_lbl] = round((1 - np.exp(-_days_s / _mtbf_d)) * 100, 1)
+
+            _risk_freq["Urgence MTBF (%)"] = _risk_freq["Machine"].map(_mtbf_quick).fillna(50.0)
+
+            # Quadrant label
+            _freq_med = _risk_freq["freq"].median()
+            _mtbf_med = 50.0
+            def _quadrant(row):
+                if row["freq"] >= _freq_med and row["Urgence MTBF (%)"] >= _mtbf_med:
+                    return "🔴 Agir maintenant"
+                elif row["freq"] >= _freq_med:
+                    return "🟠 Planifier"
+                elif row["Urgence MTBF (%)"] >= _mtbf_med:
+                    return "🟡 Surveiller"
+                return "🟢 OK"
+            _risk_freq["Priorité"] = _risk_freq.apply(_quadrant, axis=1)
+
+            _color_map = {
+                "🔴 Agir maintenant": "#e74c3c",
+                "🟠 Planifier":       "#e67e22",
+                "🟡 Surveiller":      "#f1c40f",
+                "🟢 OK":              "#27ae60",
+            }
+            fig_matrix = px.scatter(
+                _risk_freq,
+                x="freq",
+                y="Urgence MTBF (%)",
+                size="total",
+                color="Priorité",
+                color_discrete_map=_color_map,
+                text="Machine",
+                size_max=60,
+                labels={"freq": "Pannes prévues / mois (moy.)", "Urgence MTBF (%)": "Prob. panne imminente (%)"},
+                hover_data={"total": True, "freq": ":.1f", "Urgence MTBF (%)": ":.1f"},
             )
-            fig_risk.update_layout(showlegend=False, xaxis_tickangle=-30)
-            st.plotly_chart(fig_risk, width='stretch')
+            fig_matrix.update_traces(textposition="top center", textfont_size=11)
+            # Lignes de séparation des quadrants
+            fig_matrix.add_vline(x=_freq_med, line_dash="dash", line_color="grey", opacity=0.4)
+            fig_matrix.add_hline(y=_mtbf_med, line_dash="dash", line_color="grey", opacity=0.4)
+            fig_matrix.update_layout(
+                height=480,
+                yaxis_range=[-5, 105],
+                xaxis_title="Pannes prévues / mois (moyenne sur l'horizon)",
+                yaxis_title="Probabilité de panne imminente — MTBF (%)",
+                legend_title="Priorité",
+            )
+            st.plotly_chart(fig_matrix, width='stretch')
 
         # ── Section MTBF ─────────────────────────────────────────────────────
         st.markdown("---")
